@@ -1,0 +1,8 @@
+torch
+wandb
+peft
+bitsandbytes
+transformers
+datasets
+qwen_vl_utils
+trl

@@ -1,0 +1,4 @@
+legacy/
+wandb/
+terminal/
+*.ipynb

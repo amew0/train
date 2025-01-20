@@ -2,3 +2,4 @@ legacy/
 wandb/
 terminal/
 *.ipynb
+__pycache__/

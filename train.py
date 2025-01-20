@@ -1,4 +1,6 @@
 import torch
+import pathlib
+import json
 from datasets import load_dataset
 from transformers import (
     AutoProcessor,
@@ -22,6 +24,7 @@ from trl import (
     get_quantization_config,
 )
 
+from utils import *
 
 def rank0_print(*args):
     if dist.is_initialized():
@@ -30,34 +33,20 @@ def rank0_print(*args):
     else:
         print(*args)
 
-
-"""def find_all_linear_names(model):
-    cls = torch.nn.Linear
-    lora_module_names = set()
-    multimodal_keywords = ["mm_projector", "vision_tower", "vision_resampler"]
-    for name, module in model.named_modules():
-        if any(mm_keyword in name for mm_keyword in multimodal_keywords):
-            continue
-        if isinstance(module, cls):
-            names = name.split(".")
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
-
-    if "lm_head" in lora_module_names:  # needed for 16-bit
-        lora_module_names.remove("lm_head")
-    return list(lora_module_names)
-"""
-
-
+# collate_fn
+# assist from https://github.com/zhangfaen/finetune-Qwen2-VL/blob/main/finetune.py
 def collate_fn(examples):
-    # TODO: DataCollatorForCompletionOnly in the next life
+    # rank0_print(len(examples))
     for_r = "rec" in script_args.dataset_name
-    texts = [
-        processor.apply_chat_template(e, tokenize=False) for e in examples
-    ]
+    messages = [e["messages"] for e in examples]
+    texts = [processor.apply_chat_template(m, tokenize=False) for m in messages]
     if for_r:
         raise NotImplementedError("rec dataset not supported yet")
     else:
-        image_inputs, video_inputs = process_vision_info([e['messages'] for e in examples])
+        for i in range(len(messages)):
+            messages[i][1]["content"] = json.loads(messages[i][1]["content"])
+
+        image_inputs, video_inputs = process_vision_info(messages)
 
         batch = processor(
             text=texts,
@@ -67,18 +56,26 @@ def collate_fn(examples):
             return_tensors="pt",
         )
 
-    # mask the padding token & the video pad token (check the model config file)
-    labels = batch["input_ids"].clone()
-    video_pad_id = processor.tokenizer.convert_tokens_to_ids(processor.video_token)
+    input_ids_lists = batch["input_ids"].tolist()
+    assert len(messages) == len(input_ids_lists)
 
-    labels[labels == processor.tokenizer.pad_token_id] = -100
-    labels[labels == video_pad_id] = -100
+    # TODO: just use DataCollatorForCompletionOnly
+    labels_list = []
+    for ids_list in input_ids_lists:
+        label_ids = [-100] * len(ids_list)
+        for begin_end_indexs in find_assistant_content_sublist_indexes(ids_list):
+            label_ids[begin_end_indexs[0] : begin_end_indexs[1]] = ids_list[
+                begin_end_indexs[0] : begin_end_indexs[1]
+            ]
+        labels_list.append(label_ids)
 
-    batch["labels"] = labels
+    labels_ids = torch.tensor(labels_list, dtype=torch.int64)
+    batch["labels"] = labels_ids
     return batch
 
 
 if __name__ == "__main__":
+    print_gpu_utilization()
 
     parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
     script_args, training_args, model_config = parser.parse_args_and_config()
@@ -95,6 +92,14 @@ if __name__ == "__main__":
         "up_proj",
         "q_proj",
         "v_proj",
+        "fc2",
+        "qkv",
+        "gate_proj",
+        "o_proj",
+        "fc1",
+        "proj",
+        # "0",
+        # "2",
     ]
     # TODO: model_config.lora_target_modules = find_all_linear_names(model)
 
@@ -112,12 +117,14 @@ if __name__ == "__main__":
         revision=model_config.model_revision,
         attn_implementation=model_config.attn_implementation,
         # device_map=get_kbit_device_map() if quantization_config is not None else None,
-        # quantization_config=quantization_config,
+        quantization_config=quantization_config,
         torch_dtype=torch_dtype,
     )
     processor = AutoProcessor.from_pretrained(
         model_config.model_name_or_path,
         trust_remote_code=model_config.trust_remote_code,
+        padding_side="right",  # needed for training qwen2-vl
+        # max_pixels=(200 * 200), # this doesn't seem to be used!!!
     )
 
     model = Qwen2VLForConditionalGeneration.from_pretrained(
@@ -125,21 +132,34 @@ if __name__ == "__main__":
         **model_kwargs,
     )
 
-    if os.path.exists(script_args.dataset_name):
-        dataset = load_dataset("json", data_files=script_args.dataset_name)
-    else:
-        dataset = load_dataset(script_args.dataset_name)
+    print_gpu_utilization()
 
-    trainer = SFTTrainer(
+    train_dataset = load_dataset(
+        "json", data_files=script_args.dataset_name, split="train"
+    )
+    if os.path.exists(training_args.output_dir):
+        train_dataset = reorder_dataset(train_dataset, training_args.output_dir)
+
+    from torch.utils.data import SequentialSampler
+
+    class SFTTrainerNoShuffle(SFTTrainer):
+        def _get_train_sampler(self):
+            return SequentialSampler(self.train_dataset)  # prevents shuffling
+
+    trainer = SFTTrainerNoShuffle(
         model=model,
         args=training_args,
         data_collator=collate_fn,
-        train_dataset=dataset[script_args.dataset_train_split],
+        train_dataset=train_dataset,
         peft_config=get_peft_config(model_config),
+        processing_class=processor.tokenizer,
     )
     torch.cuda.empty_cache()
 
-    trainer.train()
+    if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+        trainer.train(resume_from_checkpoint=True)
+    else:
+        trainer.train()
 
     # Save and push to hub
     trainer.save_model(training_args.output_dir)

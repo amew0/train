@@ -1,8 +1,11 @@
 import os
 import json
+import torch
+from qwen_vl_utils import process_vision_info
 
 
 def find_assistant_content_sublist_indexes(l):
+    # from https://github.com/zhangfaen/finetune-Qwen2-VL/blob/main/finetune.py
     """
     A message from train_data/data.json may look like below:
         {
@@ -40,16 +43,39 @@ def find_assistant_content_sublist_indexes(l):
     return list(zip(start_indexes, end_indexes))
 
 
-def collate_fn(examples, processor):
-    # Cut from the original collate_fn
-    # mask the padding token & the video pad token (check the model config file)
-    labels = batch["input_ids"].clone()
-    video_pad_id = processor.tokenizer.convert_tokens_to_ids(processor.video_token)
+def collate_helper(examples, processor, for_r=False):
+    messages = [e["messages"] for e in examples]
+    texts = [processor.apply_chat_template(m, tokenize=False) for m in messages]
+    if for_r:
+        batch = processor(text=texts, padding=True, return_tensors="pt")
+    else:
+        for i in range(len(messages)):
+            messages[i][1]["content"] = json.loads(messages[i][1]["content"])
 
-    labels[labels == processor.tokenizer.pad_token_id] = -100
-    labels[labels == video_pad_id] = -100
+        image_inputs, video_inputs = process_vision_info(messages)
 
-    batch["labels"] = labels
+        batch = processor(
+            text=texts,
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        )
+
+    input_ids_lists = batch["input_ids"].tolist()
+    assert len(messages) == len(input_ids_lists)
+
+    # TODO: just use DataCollatorForCompletionOnly
+    labels_list = []
+    for ids_list in input_ids_lists:
+        label_ids = [-100] * len(ids_list)
+        for begin_end_indexs in find_assistant_content_sublist_indexes(ids_list):
+            label_ids[begin_end_indexs[0] : begin_end_indexs[1]] = ids_list[
+                begin_end_indexs[0] : begin_end_indexs[1]
+            ]
+        labels_list.append(label_ids)
+    labels_ids = torch.tensor(labels_list, dtype=torch.int64)
+    batch["labels"] = labels_ids
     return batch
 
 
@@ -108,3 +134,25 @@ def reorder_dataset(dataset, chpt_dir):
     # Concatenate the two parts
     reordered_dataset = concatenate_datasets([dataset_part1, dataset_part2])
     return reordered_dataset
+
+
+def calculate_parameters_per_module(model, target_module_names):
+    parameters_per_module = {name: 0 for name in target_module_names}
+    for name, module in model.named_modules():
+        # Check if the name matches one of the target names
+        for target_name in target_module_names:
+            if target_name in name:
+                # Add the parameters for this module to the corresponding key
+                parameters_per_module[target_name] += sum(
+                    p.numel() for p in module.parameters()
+                )
+    return parameters_per_module
+
+
+# # Example usage
+# target_module_names = ["down_proj", "k_proj", "up_proj", "q_proj", "v_proj"]
+# parameters_per_module = calculate_parameters_per_module(model, target_module_names)
+
+# # Print results
+# for module_name, param_count in parameters_per_module.items():
+#     print(f"#P's {module_name}: {param_count/1e6}m")

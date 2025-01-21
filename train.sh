@@ -13,12 +13,13 @@ echo ADDR: $ADDR
 echo NUM_GPUS: $NUM_GPUS
 echo PORT: $PORT
 
-DATA_PATH=/home/kunet.ae/ku5001069/j/generator/data/p-train.json
-MODEL_NAME=Qwen/Qwen2-VL-2B-Instruct
+DATA_PATH=/home/kunet.ae/ku5001069/j/generator/data/rec-train.json
+# MODEL_NAME=Qwen/Qwen2-VL-2B-Instruct
+MODEL_NAME=/dpc/kunf0097/.cache/huggingface/hub/qwen-2B-p-t4bit-0120_141519
 if [ -z "$1" ]; then
-    RUN_NAME="qwen-2B-p-t4bit-$(date +%m%d_%H%M%S)"
+    RUN_NAME="qwen-2B-r-t4bit-$(date +%m%d_%H%M%S)"
 else
-    RUN_NAME="qwen-2B-p-t4bit-$1"
+    RUN_NAME="qwen-2B-r-t4bit-$1"
 fi
 # RUN_NAME="put the checkpoint name here"
 OUTPUT_DIR=/dpc/kunf0097/out/checkpoints/$RUN_NAME

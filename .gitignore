@@ -1,5 +1,6 @@
 legacy/
 wandb/
 terminal/
+out/
 *.ipynb
 __pycache__/

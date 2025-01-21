@@ -1,18 +1,13 @@
+import os
 import torch
 import pathlib
-import json
+from utils import collate_helper, print_gpu_utilization, reorder_dataset
 from datasets import load_dataset
+import torch.distributed as dist
 from transformers import (
     AutoProcessor,
     Qwen2VLForConditionalGeneration,
 )
-
-from qwen_vl_utils import process_vision_info
-
-import torch.distributed as dist
-import os
-
-
 from trl import (
     ModelConfig,
     ScriptArguments,
@@ -23,8 +18,13 @@ from trl import (
     get_peft_config,
     get_quantization_config,
 )
+from torch.utils.data import SequentialSampler
 
-from utils import *
+
+class SFTTrainerNoShuffle(SFTTrainer):
+    def _get_train_sampler(self):
+        return SequentialSampler(self.train_dataset)  # prevents shuffling
+
 
 def rank0_print(*args):
     if dist.is_initialized():
@@ -32,46 +32,6 @@ def rank0_print(*args):
             print(f"{dist.get_rank()}: ", *args)
     else:
         print(*args)
-
-# collate_fn
-# assist from https://github.com/zhangfaen/finetune-Qwen2-VL/blob/main/finetune.py
-def collate_fn(examples):
-    # rank0_print(len(examples))
-    for_r = "rec" in script_args.dataset_name
-    messages = [e["messages"] for e in examples]
-    texts = [processor.apply_chat_template(m, tokenize=False) for m in messages]
-    if for_r:
-        raise NotImplementedError("rec dataset not supported yet")
-    else:
-        for i in range(len(messages)):
-            messages[i][1]["content"] = json.loads(messages[i][1]["content"])
-
-        image_inputs, video_inputs = process_vision_info(messages)
-
-        batch = processor(
-            text=texts,
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
-
-    input_ids_lists = batch["input_ids"].tolist()
-    assert len(messages) == len(input_ids_lists)
-
-    # TODO: just use DataCollatorForCompletionOnly
-    labels_list = []
-    for ids_list in input_ids_lists:
-        label_ids = [-100] * len(ids_list)
-        for begin_end_indexs in find_assistant_content_sublist_indexes(ids_list):
-            label_ids[begin_end_indexs[0] : begin_end_indexs[1]] = ids_list[
-                begin_end_indexs[0] : begin_end_indexs[1]
-            ]
-        labels_list.append(label_ids)
-
-    labels_ids = torch.tensor(labels_list, dtype=torch.int64)
-    batch["labels"] = labels_ids
-    return batch
 
 
 if __name__ == "__main__":
@@ -87,17 +47,20 @@ if __name__ == "__main__":
     training_args.dataset_kwargs = {"skip_prepare_dataset": True}
 
     model_config.lora_target_modules = [
+        # # llm
         "down_proj",
         "k_proj",
         "up_proj",
         "q_proj",
         "v_proj",
-        "fc2",
-        "qkv",
         "gate_proj",
         "o_proj",
-        "fc1",
-        "proj",
+        # # vision
+        # "fc1",
+        # "fc2",
+        # "qkv",
+        # "proj",
+        # # merge
         # "0",
         # "2",
     ]
@@ -140,11 +103,9 @@ if __name__ == "__main__":
     if os.path.exists(training_args.output_dir):
         train_dataset = reorder_dataset(train_dataset, training_args.output_dir)
 
-    from torch.utils.data import SequentialSampler
-
-    class SFTTrainerNoShuffle(SFTTrainer):
-        def _get_train_sampler(self):
-            return SequentialSampler(self.train_dataset)  # prevents shuffling
+    collate_fn = lambda examples: collate_helper(
+        examples, processor, for_r="rec" in script_args.dataset_name
+    )
 
     trainer = SFTTrainerNoShuffle(
         model=model,
@@ -169,5 +130,5 @@ if __name__ == "__main__":
         trainer.push_to_hub(dataset_name=script_args.dataset_name)
         if trainer.accelerator.is_main_process:
             processor.push_to_hub(training_args.hub_model_id)
-            
+
     rank0_print("Training completed successfully!")

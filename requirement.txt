@@ -1,4 +1,4 @@
-torch
+deepspeed
 wandb
 peft
 bitsandbytes

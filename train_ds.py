@@ -1,7 +1,12 @@
 import os
 import torch
 import pathlib
-from utils import collate_helper, find_all_linear_names, print_gpu_utilization, reorder_dataset
+from utils import (
+    collate_helper,
+    find_all_linear_names,
+    print_gpu_utilization,
+    reorder_dataset,
+)
 from datasets import load_dataset
 import torch.distributed as dist
 from transformers import (
@@ -19,12 +24,12 @@ from trl import (
     get_quantization_config,
 )
 from torch.utils.data import SequentialSampler
-
+from accelerate import Accelerator
+import deepspeed
 
 class SFTTrainerNoShuffle(SFTTrainer):
     def _get_train_sampler(self):
         return SequentialSampler(self.train_dataset)  # prevents shuffling
-
 
 def rank0_print(*args):
     if dist.is_initialized():
@@ -35,6 +40,7 @@ def rank0_print(*args):
 
 
 if __name__ == "__main__":
+    accelerator = Accelerator()
     print_gpu_utilization()
 
     parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
@@ -46,7 +52,7 @@ if __name__ == "__main__":
     training_args.remove_unused_columns = False
     training_args.dataset_kwargs = {"skip_prepare_dataset": True}
 
-    model_config.lora_target_modules = find_all_linear_names() 
+    model_config.lora_target_modules = find_all_linear_names()
 
     rank0_print(f"Script Args: {vars(script_args)}\n\n")
     rank0_print(f"Training Args: {vars(training_args)}\n\n")
@@ -57,12 +63,12 @@ if __name__ == "__main__":
         if model_config.torch_dtype in ["auto", None]
         else getattr(torch, model_config.torch_dtype)
     )
-    quantization_config = get_quantization_config(model_config)
+    # quantization_config = get_quantization_config(model_config)
     model_kwargs = dict(
         revision=model_config.model_revision,
         attn_implementation=model_config.attn_implementation,
         # device_map=get_kbit_device_map() if quantization_config is not None else None,
-        quantization_config=quantization_config,
+        # quantization_config=quantization_config,
         torch_dtype=torch_dtype,
     )
     processor = AutoProcessor.from_pretrained(
@@ -99,13 +105,19 @@ if __name__ == "__main__":
     )
     torch.cuda.empty_cache()
 
-    if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
-        trainer.train(resume_from_checkpoint=True)
+    if accelerator.is_main_process:
+        if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+            trainer.train(resume_from_checkpoint=True)
+        else:
+            trainer.train()
     else:
-        trainer.train()
+        accelerator.wait_for_everyone()
 
     # Save and push to hub
-    trainer.save_model(training_args.output_dir)
+    trainer.model.save_pretrained(
+        training_args.output_dir,
+        is_main_process=accelerator.is_main_process,
+    )
     processor.save_pretrained(training_args.output_dir)  # added!
 
     if training_args.push_to_hub:

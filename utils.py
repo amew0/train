@@ -156,3 +156,25 @@ def calculate_parameters_per_module(model, target_module_names):
 # # Print results
 # for module_name, param_count in parameters_per_module.items():
 #     print(f"#P's {module_name}: {param_count/1e6}m")
+
+
+def find_all_linear_names():
+    # TODO: model_config.lora_target_modules = find_all_linear_names(model)
+    return [
+        # # llm
+        "down_proj",
+        "k_proj",
+        "up_proj",
+        "q_proj",
+        "v_proj",
+        "gate_proj",
+        "o_proj",
+        # # vision
+        # "fc1",
+        # "fc2",
+        # "qkv",
+        # "proj",
+        # # merge
+        # "0",
+        # "2",
+    ]

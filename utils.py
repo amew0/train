@@ -43,7 +43,7 @@ def find_assistant_content_sublist_indexes(l):
     return list(zip(start_indexes, end_indexes))
 
 
-def collate_helper(examples, processor, for_r=False):
+def collate_helper(examples, processor, for_r=False, video_dir="/dpc/kunf0097/data/cchw"):
     messages = [e["messages"] for e in examples]
     texts = [processor.apply_chat_template(m, tokenize=False) for m in messages]
     if for_r:
@@ -51,6 +51,17 @@ def collate_helper(examples, processor, for_r=False):
     else:
         for i in range(len(messages)):
             messages[i][1]["content"] = json.loads(messages[i][1]["content"])
+
+        # append video_dir to video file name
+        if video_dir:
+            messages = [
+                [
+                    m[0],
+                    [{"video": os.path.join(video_dir, m[1][0]["video"])}, m[1][1]],
+                    m[2],
+                ]
+                for m in messages
+            ]
 
         image_inputs, video_inputs = process_vision_info(messages)
 

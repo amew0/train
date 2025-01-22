@@ -1,4 +1,4 @@
-DATA_PATH=/home/kunet.ae/ku5001069/j/generator/data/p-train.json
+DATA_PATH=/home/ubuntu/train/out/rec-train.json
 MODEL_NAME=Qwen/Qwen2-VL-7B-Instruct
 if [ -z "$1" ]; then
     RUN_NAME="qwen-7B-p-t4bit-$(date +%m%d_%H%M%S)"
@@ -6,14 +6,14 @@ else
     RUN_NAME="qwen-7B-p-t4bit-$1"
 fi
 # RUN_NAME="put the checkpoint name here"
-OUTPUT_DIR=/dpc/kunf0097/out/checkpoints/$RUN_NAME
+OUTPUT_DIR=/home/ubuntu/train/out/checkpoints/$RUN_NAME
 
 echo "MODEL_NAME: $MODEL_NAME"
 echo "RUN_NAME: $RUN_NAME"
 echo "OUTPUT_DIR: $OUTPUT_DIR"
 echo "DATA_PATH: $DATA_PATH"
 
-export TRITON_CACHE_DIR="/dpc/kunf0097/.cache/triton"
+# export TRITON_CACHE_DIR="/dpc/kunf0097/.cache/triton"
 # accelerate test --config-file="config/d.yaml"
 
 accelerate launch \

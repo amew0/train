@@ -24,7 +24,6 @@ from trl import (
     get_quantization_config,
 )
 from torch.utils.data import SequentialSampler
-from accelerate import Accelerator
 import deepspeed
 
 class SFTTrainerNoShuffle(SFTTrainer):
@@ -40,15 +39,14 @@ def rank0_print(*args):
 
 
 if __name__ == "__main__":
-    accelerator = Accelerator()
     print_gpu_utilization()
 
     parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
     script_args, training_args, model_config = parser.parse_args_and_config()
 
-    training_args.gradient_checkpointing_kwargs = dict(
-        use_reentrant=False
-    )  # for distributed training
+    # training_args.gradient_checkpointing_kwargs = dict(
+    #     use_reentrant=False
+    # )  # for distributed training
     training_args.remove_unused_columns = False
     training_args.dataset_kwargs = {"skip_prepare_dataset": True}
 
@@ -105,19 +103,13 @@ if __name__ == "__main__":
     )
     torch.cuda.empty_cache()
 
-    if accelerator.is_main_process:
-        if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
-            trainer.train(resume_from_checkpoint=True)
-        else:
-            trainer.train()
+    if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+        trainer.train(resume_from_checkpoint=True)
     else:
-        accelerator.wait_for_everyone()
+        trainer.train()
 
     # Save and push to hub
-    trainer.model.save_pretrained(
-        training_args.output_dir,
-        is_main_process=accelerator.is_main_process,
-    )
+    trainer.save_model(training_args.output_dir)
     processor.save_pretrained(training_args.output_dir)  # added!
 
     if training_args.push_to_hub:

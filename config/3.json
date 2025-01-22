@@ -1,6 +1,4 @@
 {
-    
-
     "zero_optimization": {
         "stage": 3,
         "offload_optimizer": {

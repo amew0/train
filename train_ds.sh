@@ -10,7 +10,7 @@ echo ADDR: $ADDR
 echo NUM_GPUS: $NUM_GPUS
 echo PORT: $PORT
 
-DATA_PATH=/home/ubuntu/train/out/rec-train-14.json
+DATA_PATH=/home/ubuntu/train/out/rec-train.json
 MODEL_NAME=Qwen/Qwen2-VL-7B-Instruct
 if [ -z "$1" ]; then
     RUN_NAME="qwen-7B-r-t4bit-$(date +%m%d_%H%M%S)"

@@ -55,9 +55,12 @@ files_to_evaluate = [
     # "out/p-test-qwen-2B-p-t4bit-0120_141519.json",
     # "out/p-test-Qwen2-VL-2B-Instruct.json",
     # rec
-    "out/rec-test-Qwen2-VL-2B-Instruct.json",
-    "out/rec-test-qwen-2B-r-t4bit-0121_153914.json",
-    "out/rec-test-qwen-2B-r-t4bit-0121_160123.json",
+    # "out/rec-test-Qwen2-VL-2B-Instruct.json",
+    # "out/rec-test-qwen-2B-r-t4bit-0121_153914.json",
+    # "out/rec-test-qwen-2B-r-t4bit-0121_160123.json",
+    # 7B
+    "out/rec-test-qwen-7B-r-t4bit-0122_184113.json",
+    "out/rec-test-Qwen2-VL-7B-Instruct.json",
 ]
 
 

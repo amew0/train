@@ -7,7 +7,6 @@
         "hysteresis": 2,
         "min_loss_scale": 1
     },
-
     "optimizer": {
         "type": "AdamW",
         "params": {
@@ -17,7 +16,6 @@
             "weight_decay": "auto"
         }
     },
-
     "scheduler": {
         "type": "WarmupLR",
         "params": {
@@ -26,7 +24,6 @@
             "warmup_num_steps": "auto"
         }
     },
-
     "zero_optimization": {
         "stage": 3,
         "offload_optimizer": {
@@ -36,15 +33,14 @@
         "offload_param": {
             "device": "cpu",
             "pin_memory": true
-        }
+        },
+        "stage3_gather_16bit_weights_on_model_save": true
     },
-
     "gradient_accumulation_steps": "auto",
     "gradient_clipping": "auto",
     "steps_per_print": 2000,
     "train_micro_batch_size_per_gpu": "auto",
     "wall_clock_breakdown": false,
     "train_batch_size": "auto",
-    "is_deepspeed_zero3_enabled": true,
-    "stage3_gather_16bit_weights_on_model_save": true
+    "is_deepspeed_zero3_enabled": true
 }
